@@ -21,28 +21,65 @@
 <div class="card">
   <h1>وادي فجر</h1>
   <div class="spin"></div>
-  <p id="msg">جارٍ فتح باب الوادي…</p>
-  <p><a id="manual" href="#" style="display:none">اضغط هنا إن لم تُفتح الصفحة تلقائيًا</a></p>
+  <p id="msg">جارٍ الوصول إلى فجر…</p>
+  <p id="sub" style="font-size:13px">قد يستغرق هذا بضع ثوانٍ — لا تغلق الصفحة، سنأخذك إليها تلقائيًا.</p>
+  <p><a id="manual" href="#" style="display:none">المحاولة المباشرة</a></p>
 </div>
 <script>
-  var tries = 0;
-  function go() {
-    tries++;
-    fetch('pointer.json?t=' + Date.now(), {cache: 'no-store'})
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        if (d && d.url) {
-          var a = document.getElementById('manual');
-          a.href = d.url; a.style.display = 'inline';
-          document.getElementById('msg').textContent = 'وجدنا فجر — نأخذك إليها الآن…';
-          location.replace(d.url);
-        } else if (tries < 40) { setTimeout(go, 5000); }
-        else { document.getElementById('msg').textContent =
-          'الوادي مغلق مؤقتًا — أعد المحاولة بعد دقائق.'; }
-      })
-      .catch(function(){ if (tries < 40) setTimeout(go, 5000); });
+  // Self-healing door: fetch the pointer (cache-busted), probe the
+  // target before redirecting, and if it does not answer, wait and
+  // try again with a FRESH pointer — a tunnel rotation heals itself
+  // here without the visitor doing anything.
+  var lastUrl = null;
+  var startedAt = Date.now();
+
+  function fetchPointer() {
+    return fetch('pointer.json?t=' + Date.now(), {cache: 'no-store'})
+      .then(function(r){ if (!r.ok) throw new Error('pointer'); return r.json(); })
+      .then(function(d){ return (d && d.url) ? d : null; })
+      .catch(function(){ return null; });
   }
-  go();
+
+  function probe(url) {
+    // no-cors: an opaque response means the host answered *something*
+    // (gate health, PIN page, serveo notice). A dead hostname rejects.
+    return new Promise(function(resolve){
+      var ctl = new AbortController();
+      var to = setTimeout(function(){ ctl.abort(); }, 7000);
+      fetch(url + '/__health', {mode: 'no-cors', cache: 'no-store', signal: ctl.signal})
+        .then(function(){ clearTimeout(to); resolve(true); })
+        .catch(function(){ clearTimeout(to); resolve(false); });
+    });
+  }
+
+  function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+  function attempt() {
+    fetchPointer().then(function(d){
+      if (d && d.url) {
+        lastUrl = d.url;
+        var a = document.getElementById('manual');
+        a.href = d.url; a.style.display = 'inline';
+        return probe(d.url).then(function(alive){
+          if (alive) {
+            document.getElementById('msg').textContent = 'وجدنا فجر — نأخذك إليها الآن…';
+            location.replace(d.url);
+            return 'done';
+          }
+          return 'retry';
+        });
+      }
+      return 'retry';
+    }).then(function(res){
+      if (res === 'done') return;
+      if (Date.now() - startedAt > 120000) {
+        document.getElementById('msg').textContent =
+          'جارٍ الوصول إلى فجر… الوادي بعيد قليلًا الآن، ما زلنا نحاول.';
+      }
+      return wait(4000).then(attempt);
+    });
+  }
+  attempt();
 </script>
 </body>
 </html>
