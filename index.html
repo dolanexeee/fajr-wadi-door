@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فجر — الوادي</title>
+<style>
+  body{font-family:system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif;
+       background:#10151d;color:#e8e2d4;margin:0;min-height:100vh;
+       display:flex;align-items:center;justify-content:center;text-align:center}
+  .card{padding:24px;max-width:360px}
+  h1{font-size:20px;font-weight:600;margin:0 0 8px}
+  p{color:#a9b2a4;font-size:14px;line-height:1.8}
+  a{color:#d9a75e;font-size:15px}
+  .spin{width:34px;height:34px;border:3px solid #2c3644;border-top-color:#b98a4a;
+        border-radius:50%;margin:18px auto;animation:s 1s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>وادي فجر</h1>
+  <div class="spin"></div>
+  <p id="msg">جارٍ فتح باب الوادي…</p>
+  <p><a id="manual" href="#" style="display:none">اضغط هنا إن لم تُفتح الصفحة تلقائيًا</a></p>
+</div>
+<script>
+  var tries = 0;
+  function go() {
+    tries++;
+    fetch('pointer.json?t=' + Date.now(), {cache: 'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d && d.url) {
+          var a = document.getElementById('manual');
+          a.href = d.url; a.style.display = 'inline';
+          document.getElementById('msg').textContent = 'وجدنا فجر — نأخذك إليها الآن…';
+          location.replace(d.url);
+        } else if (tries < 40) { setTimeout(go, 5000); }
+        else { document.getElementById('msg').textContent =
+          'الوادي مغلق مؤقتًا — أعد المحاولة بعد دقائق.'; }
+      })
+      .catch(function(){ if (tries < 40) setTimeout(go, 5000); });
+  }
+  go();
+</script>
+</body>
+</html>
