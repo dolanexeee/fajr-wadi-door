@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- door v3: verified-gate probe (CORS /__health, ok-body, twice) -->
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
@@ -26,11 +27,13 @@
   <p><a id="manual" href="#" style="display:none">المحاولة المباشرة</a></p>
 </div>
 <script>
-  // Self-healing door: fetch the pointer (cache-busted), probe the
-  // target before redirecting, and if it does not answer, wait and
-  // try again with a FRESH pointer — a tunnel rotation heals itself
-  // here without the visitor doing anything.
-  var lastUrl = null;
+  // Self-healing door v3.
+  // Fetch the pointer (cache-busted), then PROVE the target is really
+  // Fajr's gate before redirecting: a CORS fetch of <url>/__health
+  // must return the gate's own {"ok": true} body — twice in a row.
+  // A dead serveo hostname rejects; a serveo notice/error page fails
+  // CORS or the body check. On any failure: wait, re-fetch a FRESH
+  // pointer, try again — a tunnel rotation heals itself here.
   var startedAt = Date.now();
 
   function fetchPointer() {
@@ -40,14 +43,15 @@
       .catch(function(){ return null; });
   }
 
-  function probe(url) {
-    // no-cors: an opaque response means the host answered *something*
-    // (gate health, PIN page, serveo notice). A dead hostname rejects.
+  function probeGate(url) {
     return new Promise(function(resolve){
       var ctl = new AbortController();
-      var to = setTimeout(function(){ ctl.abort(); }, 7000);
-      fetch(url + '/__health', {mode: 'no-cors', cache: 'no-store', signal: ctl.signal})
-        .then(function(){ clearTimeout(to); resolve(true); })
+      var to = setTimeout(function(){ ctl.abort(); }, 6000);
+      fetch(url + '/__health', {mode: 'cors', cache: 'no-store', signal: ctl.signal})
+        .then(function(r){ return r.text().then(function(t){
+          clearTimeout(to);
+          resolve(r.status === 200 && t.indexOf('"ok": true') !== -1);
+        }); })
         .catch(function(){ clearTimeout(to); resolve(false); });
     });
   }
@@ -56,27 +60,33 @@
 
   function attempt() {
     fetchPointer().then(function(d){
-      if (d && d.url) {
-        lastUrl = d.url;
-        var a = document.getElementById('manual');
-        a.href = d.url; a.style.display = 'inline';
-        return probe(d.url).then(function(alive){
-          if (alive) {
-            document.getElementById('msg').textContent = 'وجدنا فجر — نأخذك إليها الآن…';
-            location.replace(d.url);
-            return 'done';
-          }
-          return 'retry';
+      if (!d || !d.url) return 'retry';
+      var a = document.getElementById('manual');
+      a.href = d.url; a.style.display = 'inline';
+      return probeGate(d.url).then(function(first){
+        if (!first) return 'retry';
+        return wait(2500).then(function(){
+          // re-check the pointer: if it rotated during the wait, the
+          // fresh target is the one to verify, not the stale one.
+          return fetchPointer().then(function(d2){
+            var target = (d2 && d2.url) ? d2.url : d.url;
+            return probeGate(target).then(function(second){
+              if (!second) return 'retry';
+              document.getElementById('msg').textContent =
+                'وجدنا فجر — نأخذك إليها الآن…';
+              location.replace(target);
+              return 'done';
+            });
+          });
         });
-      }
-      return 'retry';
+      });
     }).then(function(res){
       if (res === 'done') return;
       if (Date.now() - startedAt > 120000) {
         document.getElementById('msg').textContent =
           'جارٍ الوصول إلى فجر… الوادي بعيد قليلًا الآن، ما زلنا نحاول.';
       }
-      return wait(4000).then(attempt);
+      return wait(3500).then(attempt);
     });
   }
   attempt();
